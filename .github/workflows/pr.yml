@@ -1,0 +1,32 @@
+name: Pull Request
+
+concurrency:
+  group: ci-${{ github.head_ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        ruby:
+          - 3.0.2
+          - 2.7.3
+          - 2.4.2
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby }}
+        bundler-cache: true
+    - name: Install deps
+      run: bundle install
+    - name: Run lint
+      run: bundle exec rake rubocop
+    - name: Run the tests
+      run: bundle exec rake spec

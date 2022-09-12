@@ -1,0 +1,87 @@
+name: Main
+
+concurrency:
+  group: ci-${{ github.ref }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump-and-tag.outputs.version }}
+    steps: 
+     - uses: actions/checkout@v2
+     - name: Set up Ruby
+       uses: ruby/setup-ruby@v1
+       with:
+        ruby-version: 2.4.2
+        bundler-cache: true
+     - name: Install deps
+       run: bundle install
+     - name: Bump and tag
+       id: bump-and-tag
+       run: |
+        VERSION=v$(bundle exec rake version:bump:patch)
+        git config --global user.email "github+actions@linksquares.com"
+        git config --global user.name "githubactions"
+        git commit -am "bump version to: $VERSION"
+        git tag -a $VERSION -m $VERSION
+        git push origin main --tags
+        echo "::set-output name=version::$VERSION"
+  
+  test:
+    runs-on: ubuntu-latest
+    needs: version
+    strategy:
+      matrix:
+        ruby:
+          - 3.0.2
+          - 2.7.3
+          - 2.4.2
+    steps:
+    - uses: actions/checkout@v2
+      with: 
+        ref: ${{needs.version.outputs.version}}
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby }}
+        bundler-cache: true
+    - name: Install deps
+      run: bundle install
+    - name: Run lint
+      run: bundle exec rake rubocop
+    - name: Run the tests
+      run: bundle exec rake spec
+  
+  publish:
+    runs-on: ubuntu-latest
+    needs: [test, version]
+    steps:
+    - uses: actions/checkout@v2
+      with: 
+        ref: ${{needs.version.outputs.version}}
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 2.4.2
+        bundler-cache: true
+    - name: Install deps
+      run: bundle install
+    - name: Publish the gem
+      run: |
+        VERSION=$(bundle exec rake version)
+        bundle exec rake build
+        
+        mkdir -p ~/.gem/
+        echo -e "---\n:github: Bearer ${{ secrets.GITHUB_TOKEN }}" > ~/.gem/credentials
+        chmod 600 ~/.gem/credentials
+        
+        bundle exec gem push --key github \
+        --host https://rubygems.pkg.github.com/LinkSquares \
+        pkg/template-$VERSION.gem

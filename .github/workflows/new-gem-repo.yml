@@ -1,0 +1,116 @@
+name: New Gem Repo from Template Repo
+
+concurrency:
+  group: ci-${{ github.ref }}
+
+on: 
+  workflow_dispatch:
+    # To trigger the workflow manually.
+    inputs: 
+      new_gem_repo_name:
+        description: "Proper naming convention: lowercase & no delimiters. i.e. `gemname`"
+        required: true
+      upper_new_gem_repo_name:
+        description: "Give the same name, but with the first character capitalized. i.e. `Gemname`"
+        required: true
+          # Given that its difficult to automate a name conventions, this will provide
+          #     an example as to how, and it is reqired to see it.
+
+jobs:   
+  Building_Gem_Repo:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - name: Creating Repo from Template
+        env:
+          GITHUB_TOKEN: ${{ secrets.NEW_GEM_REPO_GITHUB_TOKEN }}
+        run: |
+          gh repo create Linksquares/${{ github.event.inputs.new_gem_repo_name }} \
+          --private --template Linksquares/linksquares-gem-template
+                  
+      #  dev team => maintain ;
+      - name: Assigning Permissions Pt.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.NEW_GEM_REPO_GITHUB_TOKEN }}
+        run: |
+          gh api /orgs/LinkSquares/teams/dev/repos/LinkSquares/${{ github.event.inputs.new_gem_repo_name }} \
+          --method PUT -H 'Accept: application/vnd.github.v3.raw+json' \
+          -f permission='maintain'
+
+      # admin team => admin
+      - name: Assigning Permissions Pt.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.NEW_GEM_REPO_GITHUB_TOKEN }}
+        run: |
+          gh api /orgs/LinkSquares/teams/admin/repos/LinkSquares/${{ github.event.inputs.new_gem_repo_name }} \
+          --method PUT -H 'Accept: application/vnd.github.v3.raw+json' \
+          -f permission='admin'
+
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          repository: "LinkSquares/${{ github.event.inputs.new_gem_repo_name }}"
+          token: ${{ secrets.NEW_GEM_REPO_GITHUB_TOKEN }}
+
+      # Steps to automate `GETTING.STARTED.md` below
+      #
+      # 1. Find and rename (case sensitive to preserve class names) template and Template file names and text from 
+      #             the new gem name 
+      #             (i.e. `template.something` ===> `<new_gem_name>.something` )
+      - name: Find and Replace "template"
+        uses: nguyenvanuyn96/str-find-and-replace-action@master
+        with:
+          find: "template" 
+          replace: "${{ github.event.inputs.new_gem_repo_name }}"
+
+      - name: Find and Replace "Template"
+        uses: nguyenvanuyn96/str-find-and-replace-action@master
+        with:
+          find: "Template" 
+          replace: "${{ github.event.inputs.upper_new_gem_repo_name }}"
+
+      - name: Renaming Files
+        run: |
+          git mv lib/template.rb lib/${{ github.event.inputs.new_gem_repo_name }}.rb
+          git mv spec/template_spec.rb spec/${{ github.event.inputs.new_gem_repo_name }}_spec.rb
+          git mv template.gemspec ${{ github.event.inputs.new_gem_repo_name }}.gemspec
+        #     syntax ==> git mv <old_filename> <new_filename> 
+      
+      # Installing Ruby
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 2.4.2
+          bundler-cache: true
+
+      # 3. 
+      - name: Installing Dependencies
+        run: 
+          bundle install
+      
+      # 4. 
+      - name: Verifing/Running the Tests
+        run: 
+          bundle exec rake 
+        
+      # 5. 
+      - name: Verifying the Gem Build
+        run: 
+          bundle exec rake build
+
+      # 6. 
+      - name: Push and Commit Changes to the Remote Repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.NEW_GEM_REPO_GITHUB_TOKEN }}
+        run: |
+          git config --global user.name 'Visvadevas'
+          git config --global user.email 'noreply@linksquares.com'
+          git commit -am "Gem template pipeline commit"
+          git push origin main
+
+      - name: Archive workspace
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: workspace-archive
+          path: ${{ github.workspace }}
